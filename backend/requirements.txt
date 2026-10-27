@@ -1,0 +1,27 @@
+# --- Core scaffold (needed to run the skeleton) ---
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.7.0
+python-multipart==0.0.19
+websockets==14.1
+
+# --- Per-feature deps (uncomment as each stage is implemented) ---
+# Document understanding
+# pymupdf==1.25.1
+# unstructured==0.16.11
+# Retrieval
+# sentence-transformers==3.3.1
+# faiss-cpu==1.9.0
+# Orchestration
+# langgraph==0.2.59
+# Session / jobs
+# redis==5.2.1
+# celery==5.4.0
+# Data layer
+# sqlalchemy==2.0.36
+# Speech
+# openai-whisper==20240930
+# Dev / test
+# pytest==8.3.4
+# httpx==0.28.1
