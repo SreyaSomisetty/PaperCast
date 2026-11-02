@@ -21,23 +21,47 @@ from app.core.schemas import (
     UploadResponse,
 )
 from app.orchestration import pipeline
-from app.services import adaptive_learning, document_understanding, store
+from app.services import adaptive_learning, document_understanding, retrieval, store
 
 router = APIRouter()
 
 
+def _reject_upload(status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code, content={"code": code, "message": message}
+    )
+
+
 @router.post("/documents", response_model=UploadResponse)
-async def upload_document(file: UploadFile = File(...)) -> UploadResponse:
-    """Accept a PDF, persist it, and extract its content (FR-E1, FR-E2)."""
+async def upload_document(file: UploadFile = File(...)) -> UploadResponse | JSONResponse:
+    """Accept a PDF, persist it, and extract its content (FR-E1, FR-E2).
+
+    The browser checks files too, but the API must not rely on that. A damaged
+    PDF that still starts with %PDF- can only be caught by the parser.
+    """
     if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF uploads are supported.")
+        return _reject_upload(400, "NOT_PDF", "PaperCast accepts PDF files only.")
 
     settings = get_settings()
+    limit = settings.max_upload_mb * 1024 * 1024
+    content = await file.read(limit + 1)
+    if not content:
+        return _reject_upload(400, "EMPTY_FILE", "This file is empty.")
+    if len(content) > limit:
+        return _reject_upload(
+            413,
+            "FILE_TOO_LARGE",
+            f"This file is too large. The limit is {settings.max_upload_mb} MB.",
+        )
+    if not content.startswith(b"%PDF-"):
+        return _reject_upload(400, "NOT_PDF", "PaperCast accepts PDF files only.")
+
     document_id = uuid.uuid4().hex[:12]
     dest = Path(settings.storage_dir) / f"{document_id}.pdf"
-    dest.write_bytes(await file.read())
+    dest.write_bytes(content)
 
     document = document_understanding.extract(document_id, dest)
+    retrieval.build_index(document)
     store.save_document(document)
     return UploadResponse(document_id=document_id, filename=file.filename)
 

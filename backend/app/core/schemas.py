@@ -82,7 +82,15 @@ class EvidencePassage(BaseModel):
     chunk_id: str
     text: str
     location: SourceLocation = Field(default_factory=SourceLocation)
-    score: float = 0.0
+    score: float = Field(default=0.0, ge=0.0, le=1.0)  # fused, calibrated
+    # Optional additions from retrieval. `location` stays for existing consumers.
+    page: Optional[int] = None
+    section_id: Optional[str] = None
+    section_title: Optional[str] = None
+    paragraph: Optional[int] = None
+    rank: Optional[int] = None  # 1-based position in this result
+    dense_score: Optional[float] = None  # cosine, clamped to [0, 1]
+    lexical_score: Optional[float] = None  # normalized BM25 x term coverage
 
 
 # --------------------------------------------------------------------------- #
