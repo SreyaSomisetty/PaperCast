@@ -54,11 +54,14 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
 
 ```bash
 cd backend
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
+
+Use Python 3.11. The first upload downloads the embedding model. Tests run
+offline with `python -m pytest`.
 
 API docs at http://localhost:8000/docs
 

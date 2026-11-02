@@ -23,6 +23,7 @@ yarn-error.log*
 backend/data/*.db
 backend/data/*.sqlite
 backend/data/faiss/
+backend/data/indexes/
 backend/storage/
 *.wav
 *.mp3
