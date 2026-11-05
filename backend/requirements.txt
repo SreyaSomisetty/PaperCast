@@ -8,7 +8,7 @@ websockets==14.1
 
 # --- Per-feature deps (uncomment as each stage is implemented) ---
 # Document understanding
-# pymupdf==1.25.1
+pymupdf==1.25.1
 # unstructured==0.16.11
 # Retrieval
 sentence-transformers==5.7.0

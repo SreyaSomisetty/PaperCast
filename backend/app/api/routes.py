@@ -22,6 +22,7 @@ from app.core.schemas import (
 )
 from app.orchestration import pipeline
 from app.services import adaptive_learning, document_understanding, retrieval, store
+from app.services.document_understanding import CorruptPdfError
 
 router = APIRouter()
 
@@ -60,7 +61,16 @@ async def upload_document(file: UploadFile = File(...)) -> UploadResponse | JSON
     dest = Path(settings.storage_dir) / f"{document_id}.pdf"
     dest.write_bytes(content)
 
-    document = document_understanding.extract(document_id, dest)
+    try:
+        document = document_understanding.extract(document_id, dest)
+    except CorruptPdfError:
+        dest.unlink(missing_ok=True)
+        return _reject_upload(
+            400,
+            "CORRUPT_PDF",
+            "This PDF could not be read. The file may be damaged.",
+        )
+
     retrieval.build_index(document)
     store.save_document(document)
     return UploadResponse(document_id=document_id, filename=file.filename)

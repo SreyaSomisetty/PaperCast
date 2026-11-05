@@ -11,6 +11,7 @@ from app.core.config import Settings
 from app.core.schemas import Document
 from app.main import app
 from app.services import document_understanding, retrieval
+from tests.fixtures.pdfs import padded_pdf_bytes, sample_pdf_bytes
 
 
 @pytest.fixture
@@ -21,8 +22,12 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 
 def _upload(
-    client: TestClient, name: str = "paper.pdf", content: bytes = b"%PDF-1.4 test"
+    client: TestClient,
+    name: str = "paper.pdf",
+    content: bytes | None = None,
 ):
+    if content is None:
+        content = sample_pdf_bytes()
     return client.post(
         "/api/documents", files={"file": (name, content, "application/pdf")}
     )
@@ -34,7 +39,7 @@ def test_upload_builds_the_index(client: TestClient) -> None:
     assert response.status_code == 200
     info = retrieval.get_index_info(response.json()["document_id"])
     assert info is not None
-    assert info.chunk_count == 1
+    assert info.chunk_count >= 1
 
 
 def test_document_with_nothing_to_index_returns_422(
@@ -107,9 +112,18 @@ def test_upload_exactly_at_the_limit_is_accepted(
     settings = Settings(storage_dir=tmp_path, data_dir=tmp_path, max_upload_mb=1)
     monkeypatch.setattr(routes, "get_settings", lambda: settings)
 
-    response = _upload(client, content=b"%PDF-" + b"x" * (1024 * 1024 - 5))
+    response = _upload(client, content=padded_pdf_bytes(1024 * 1024))
 
     assert response.status_code == 200
+
+
+def test_corrupt_pdf_returns_400(client: TestClient, tmp_path: Path) -> None:
+    response = _upload(client, content=b"%PDF-1.4 damaged-not-a-real-file")
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "CORRUPT_PDF"
+    assert response.json()["message"]
+    assert list(tmp_path.glob("*.pdf")) == []
 
 
 def test_error_messages_do_not_expose_internal_detail(
