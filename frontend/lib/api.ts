@@ -1,5 +1,6 @@
 // Typed client for the PaperCast backend. Components never handle raw responses.
 import { API_BASE } from "./config";
+import { MOCK_HEADER, recoverMocks } from "./mockRecovery";
 import type {
   ClaimEvidence,
   DocumentSummary,
@@ -37,7 +38,8 @@ function toApiError(status: number, statusText: string, body: unknown): ApiError
 export async function request<T>(
   path: string,
   init: RequestInit = {},
-  timeoutMs = 15_000
+  timeoutMs = 15_000,
+  retried = false
 ): Promise<T> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -49,12 +51,19 @@ export async function request<T>(
       signal: ctrl.signal,
       headers: { Accept: "application/json", ...init.headers },
     });
+    if (!retried && !res.headers.has(MOCK_HEADER) && (await recoverMocks())) {
+      return request<T>(path, init, timeoutMs, true);
+    }
     const body = res.status === 204 ? null : await res.json().catch(() => null);
     if (!res.ok) throw toApiError(res.status, res.statusText, body);
     return body as T;
   } catch (e) {
     if (e instanceof ApiError) throw e;
-    throw new ApiError(0, ctrl.signal.aborted ? "TIMEOUT" : "NETWORK", String(e));
+    if (ctrl.signal.aborted) throw new ApiError(0, "TIMEOUT", String(e));
+    if (!retried && (await recoverMocks())) {
+      return request<T>(path, init, timeoutMs, true);
+    }
+    throw new ApiError(0, "NETWORK", String(e));
   } finally {
     clearTimeout(timer);
     init.signal?.removeEventListener("abort", forwardAbort);
@@ -95,7 +104,8 @@ export const mediaUrl = (path: string) =>
 // XMLHttpRequest because only it reports upload progress.
 export function uploadDocument(
   file: File,
-  onProgress: (percent: number) => void
+  onProgress: (percent: number) => void,
+  retried = false
 ): Promise<UploadAccepted> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -104,8 +114,22 @@ export function uploadDocument(
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };
-    xhr.onerror = () => reject(new ApiError(0, "NETWORK", "Upload failed."));
-    xhr.onload = () => {
+    xhr.onerror = async () => {
+      if (!retried && (await recoverMocks())) {
+        uploadDocument(file, onProgress, true).then(resolve, reject);
+      } else {
+        reject(new ApiError(0, "NETWORK", "Upload failed."));
+      }
+    };
+    xhr.onload = async () => {
+      if (
+        !retried &&
+        xhr.getResponseHeader(MOCK_HEADER) === null &&
+        (await recoverMocks())
+      ) {
+        uploadDocument(file, onProgress, true).then(resolve, reject);
+        return;
+      }
       let body: unknown = null;
       try {
         body = JSON.parse(xhr.responseText);
