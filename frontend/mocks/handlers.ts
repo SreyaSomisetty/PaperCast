@@ -1,8 +1,9 @@
 // In-memory API used by mock mode and the tests. Each status poll advances a
 // simulated pipeline by one step. To see failure states, upload a file whose
 // name contains "scan" (no selectable text) or "unverifiable" (NOTHING_APPROVED).
-import { delay, http, HttpResponse } from "msw";
+import { delay, http, HttpResponse, type HttpResponseResolver } from "msw";
 import { API_BASE, MOCK_DELAY_MS } from "@/lib/config";
+import { MOCK_HEADER } from "@/lib/mockRecovery";
 import type {
   DocumentSummary,
   EpisodeRequest,
@@ -68,15 +69,32 @@ function advance(id: string, doc: MockDocument): DocumentSummary {
   return doc.summary;
 }
 
+// Marks each response as mocked, so the client can tell when a stopped mock
+// worker lets a request reach a real server instead.
+function tagged(resolver: HttpResponseResolver): HttpResponseResolver {
+  return async (info) => {
+    const response = await resolver(info);
+    if (response instanceof Response) response.headers.set(MOCK_HEADER, "1");
+    return response;
+  };
+}
+
+const mock = {
+  get: (path: string, resolver: HttpResponseResolver) =>
+    http.get(path, tagged(resolver)),
+  post: (path: string, resolver: HttpResponseResolver) =>
+    http.post(path, tagged(resolver)),
+};
+
 const notFound = () =>
   HttpResponse.json({ code: "NOT_FOUND", message: "Not found." }, { status: 404 });
 
 export const handlers = [
-  http.get(`${API_BASE}/documents`, () =>
+  mock.get(`${API_BASE}/documents`, () =>
     HttpResponse.json([...documents.values()].map((d) => d.summary))
   ),
 
-  http.post(`${API_BASE}/documents`, async ({ request }) => {
+  mock.post(`${API_BASE}/documents`, async ({ request }) => {
     // Read from the raw body, because jsdom's XHR multipart can't be parsed by
     // `request.formData()`.
     const body = await request.text();
@@ -106,7 +124,7 @@ export const handlers = [
     );
   }),
 
-  http.get(`${API_BASE}/documents/:id`, async ({ params }) => {
+  mock.get(`${API_BASE}/documents/:id`, async ({ params }) => {
     const id = params.id as string;
     const doc = documents.get(id);
     if (!doc) return notFound();
@@ -114,7 +132,7 @@ export const handlers = [
     return HttpResponse.json(advance(id, doc));
   }),
 
-  http.post(`${API_BASE}/episodes`, async ({ request }) => {
+  mock.post(`${API_BASE}/episodes`, async ({ request }) => {
     const body = (await request.json()) as EpisodeRequest;
     const doc = documents.get(body.document_id);
     if (!doc) return notFound();
@@ -136,7 +154,7 @@ export const handlers = [
     return HttpResponse.json({ episode_id: id, status: "PENDING" }, { status: 202 });
   }),
 
-  http.get(`${API_BASE}/episodes/:id`, async ({ params }) => {
+  mock.get(`${API_BASE}/episodes/:id`, async ({ params }) => {
     const id = params.id as string;
     const episode = episodes.get(id);
     if (!episode) {
@@ -162,7 +180,7 @@ export const handlers = [
     return HttpResponse.json(view);
   }),
 
-  http.get(`${API_BASE}/claims/:id/evidence`, ({ params }) => {
+  mock.get(`${API_BASE}/claims/:id/evidence`, ({ params }) => {
     const found = claimEvidence[params.id as string];
     return found ? HttpResponse.json(found) : notFound();
   }),

@@ -135,3 +135,22 @@ test("failed document and failed run", async ({ page }) => {
   await shot(page, "library-failed");
   await expect(page).toHaveURL(/\/$/);
 });
+
+test("recovers when the browser stops the mock worker mid-run", async ({ page, context }) => {
+  await page.goto("/");
+  await page.getByLabel("PDF file").setInputFiles(pdf("paper.pdf"));
+  await expect(page.getByRole("region", { name: "Create an episode" })).toBeVisible();
+  await page.getByText("Student", { exact: true }).click();
+  await page.getByText(/Quick Brief/).click();
+  await page.getByRole("button", { name: "Generate episode" }).click();
+  await expect(page.getByRole("region", { name: "Episode in progress" })).toBeVisible();
+
+  // Chrome stops idle service workers; a restarted mock worker forgets the page.
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("ServiceWorker.enable");
+  await cdp.send("ServiceWorker.stopAllWorkers");
+
+  await page.waitForURL(/\/listen\/ep-/);
+  await expect(page.getByRole("region", { name: "Script" })).toBeVisible();
+  await expect(page.getByText(/trouble reaching the server/)).toHaveCount(0);
+});
